@@ -23,6 +23,8 @@ def rand_walk_metropolis(int draws):
     cdef np.ndarray[double, ndim=1] target = np.empty(draws)
     cdef np.ndarray[double, ndim=1] uniform = np.random.uniform(0, 1, draws) 
 
+    target[0] = current
+
     for i in xrange(1, draws):
         candidate = current + proposal[i]
         prob = min([1., target_dist(candidate)/target_dist(current)])
