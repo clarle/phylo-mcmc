@@ -27,7 +27,7 @@ def rand_walk_metropolis(int draws):
 
     for i in xrange(1, draws):
         candidate = current + proposal[i]
-        prob = min([1., target_dist(candidate)/target_dist(current)])
+        prob = min([1., exp(target_dist(candidate) - target_dist(current))])
         
         if uniform[i] < prob:
             current = candidate
