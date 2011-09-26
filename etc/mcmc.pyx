@@ -1,4 +1,6 @@
 import numpy as np
+from scipy.stats import norm, cauchy
+from scipy.optimize import fmin
 cimport numpy as np
 
 # Interfaces for functions from 'math.h' library
@@ -10,13 +12,20 @@ cdef extern from "math.h":
 
 # Target distribution to be sampled from
 
-cdef target_dist(double n):
+cdef double target_dist(double n):
     return 125*log(2+exp(n)/(1+exp(n))) - 74*log(1+exp(n)) + 35*n
 
-# Standard normal pdf for proposal
+# Log of normal PDF
 
-cdef sdnorm(double z):
-    return (-z*z/2.) - log(sqrt(2*np.pi))
+cdef double log_norm(double n):
+    return log(norm.pdf(n))
+
+# Modeling data with Cauchy errors
+
+cdef double cauchy_error_post(theta, data):
+    np_data = np.asarray(data)
+    logf = np.vectorize(cauchy.pdf)
+    return np.sum(logf(np_data))
 
 # Random walk Metropolis-Hastings algorithm
 
@@ -34,7 +43,7 @@ def rand_walk_metropolis(int draws):
 
     for i in xrange(1, draws):
         candidate = current + proposal[i]
-        prob = min([1., exp(target_dist(candidate) - target_dist(current))])
+        prob = min(1., exp(target_dist(candidate) - target_dist(current)))
         
         if rand_draw[i] < prob:
             current = candidate
@@ -60,7 +69,7 @@ def indep_metropolis(int draws):
 
     for i in xrange(1, draws):
         candidate = proposal[i]
-        prob = min(1., exp((target_dist(candidate) + sdnorm(candidate)) - (target_dist(current) + sdnorm(current))))
+        prob = min(1., exp((target_dist(candidate) + log_norm(candidate)) - (target_dist(current) + log_norm(current))))
 
         if rand_draw[i] < prob:
             current = candidate
@@ -71,3 +80,7 @@ def indep_metropolis(int draws):
     ratio = accepted/draws
 
     return target, ratio
+
+def laplace(log_post, mode, data=()):
+   mode = fmin(log_post, mode, args=data)
+
