@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.stats import norm, cauchy
+from scipy.stats import norm, t
 from scipy.optimize import fmin
 cimport numpy as np
 
@@ -17,15 +17,17 @@ cdef double target_dist(double n):
 
 # Log of normal PDF
 
-cdef double log_norm(double n):
+def log_norm(double n):
     return log(norm.pdf(n))
 
 # Modeling data with Cauchy errors
 
-cdef double cauchy_error_post(theta, data):
-    np_data = np.asarray(data)
-    logf = np.vectorize(cauchy.pdf)
-    return np.sum(logf(np_data))
+def cauchy_error_post(theta, data):
+    mu = theta[0]
+    sigma = exp(theta[1])
+    neg_cauchy_err = lambda x: -log(t.pdf((x-mu)/sigma, 1)/sigma)
+    logf = np.vectorize(neg_cauchy_err)
+    return np.sum(logf(data))
 
 # Random walk Metropolis-Hastings algorithm
 
@@ -61,7 +63,7 @@ def indep_metropolis(int draws):
     cdef double current = 0.
     cdef double candidate, ratio, prob
 
-    cdef np.ndarray[double, ndim=1] proposal = np.random.uniform(-1, 1, draws)
+    cdef np.ndarray[double, ndim=1] proposal = np.random.norm(-1, 1, draws)
     cdef np.ndarray[double, ndim=1] target = np.empty(draws)
     cdef np.ndarray[double, ndim=1] rand_draw = np.random.rand(draws)
 
@@ -82,5 +84,5 @@ def indep_metropolis(int draws):
     return target, ratio
 
 def laplace(log_post, mode, data=()):
-   mode = fmin(log_post, mode, args=data)
-
+    mode = fmin(log_post, mode, args=data)
+    return mode
