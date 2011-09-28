@@ -1,4 +1,6 @@
 import numpy as np
+import numdifftools as nd
+from numpy.linalg import inv
 from scipy.stats import norm, t
 from scipy.optimize import fmin
 cimport numpy as np
@@ -17,8 +19,8 @@ cdef double target_dist(double n):
 
 # Log of normal PDF
 
-def log_norm(double n):
-    return log(norm.pdf(n))
+cdef double log_norm(double n):
+    return log(exp(-n**2/2.)/sqrt(2*np.pi))
 
 # Modeling data with Cauchy errors
 
@@ -63,7 +65,7 @@ def indep_metropolis(int draws):
     cdef double current = 0.
     cdef double candidate, ratio, prob
 
-    cdef np.ndarray[double, ndim=1] proposal = np.random.norm(-1, 1, draws)
+    cdef np.ndarray[double, ndim=1] proposal = np.random.normal(0., 1, draws)
     cdef np.ndarray[double, ndim=1] target = np.empty(draws)
     cdef np.ndarray[double, ndim=1] rand_draw = np.random.rand(draws)
 
@@ -85,4 +87,6 @@ def indep_metropolis(int draws):
 
 def laplace(log_post, mode, data=()):
     mode = fmin(log_post, mode, args=data)
-    return mode
+    Hfun = nd.Hessian(lambda x: -log_post(x, data))
+    var = -inv(Hfun(mode))
+    return mode, var
