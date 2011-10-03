@@ -1,6 +1,6 @@
 import numpy as np
 import numdifftools as nd
-from numpy.linalg import inv
+from numpy.linalg import inv, cholesky
 from scipy.stats import norm, t
 from scipy.optimize import fmin
 cimport numpy as np
@@ -85,7 +85,35 @@ def indep_metropolis(int draws):
 
     return target, ratio
 
-def laplace(log_post, mode, data=()):
+def rw_matrix_metropolis(log_post, var, scale, start, int draws, data=None):
+    cdef np.ndarray[double, ndim=2] target = np.zeros([draws, start.size])
+    cdef np.ndarray[double, ndim=2] b = np.matrix.getT(np.matrix(start))
+    cdef np.ndarray[double, ndim=1] rand_draw = np.random.rand(draws)
+    cdef np.ndarray[double, ndim=2] lower_tri = cholesky(np.matrix(var))
+
+    cdef np.ndarray[double, ndim=2] bc
+    cdef double cur, ratio
+    cdef double can = log_post(start, data)
+    cdef double accepted = 0.
+  
+    for i in xrange(1, draws):
+        bc = b + (scale * np.matrix.getT(lower_tri)) * np.matrix.getT(np.matrix(np.random.normal(0., 1, start.size)))
+        cur = log_post(bc, data)
+        prob = exp(can - cur)
+
+        if rand_draw[i] < prob:
+            cur = can
+            b = bc
+            accepted += 1.
+
+        target[i][0] = b[0]
+        target[i][1] = b[1]
+
+    ratio = accepted/draws
+
+    return target, ratio
+
+def laplace(log_post, mode, data=None):
     mode = fmin(log_post, mode, args=data)
     Hfun = nd.Hessian(lambda x: -log_post(x, data))
     var = -inv(Hfun(mode))
