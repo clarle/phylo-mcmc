@@ -1,9 +1,61 @@
 from numpy import random
-from collections import Counter
+from collections import Counter, deque
+from utils import parse_data, merge_seqs, merge_time
 
 class Tree:
     def __init__(self, **kwargs):
-        self.root = kwargs.get("root", None)
+        tau = kwargs.get("tau", None)
+        filename = kwargs.get("filename", "infile")
+        seqs, num_seqs, len_seqs = parse_data(filename)
+        leaf_nodes = self.generate_leaves(seqs, tau)
+        self.root = self.generate_tree(leaf_nodes)
+
+    def generate_leaves(self, seqs, tau):
+        leaf_nodes = []
+        prev = None
+        
+        for seq in seqs:
+            if prev is None:
+                node = Node(time=tau, sequence=seq)
+                leaf_nodes.append(node) 
+                prev = node
+            else:
+                node = Node(time=tau, sequence=seq, sibling=prev)
+                leaf_nodes[-1].sibling = node
+                leaf_nodes.append(node)
+                prev = node
+        
+        return deque(leaf_nodes)
+
+    def generate_tree(self, leaves):
+        prev = None
+
+        while True:
+            print leaves
+            left = leaves.popleft()
+            right = leaves.popleft()
+            p_seq = merge_seqs(left.sequence, right.sequence)
+            p_time = merge_time(left.time, right.time)
+            
+            if prev is None or len(leaves) == 0:
+                node = Node(time=p_time, sequence=p_seq, left=left, right=right)
+                left.parent = node
+                right.parent = node
+                leaves.append(node)
+                prev = node
+                if len(leaves) == 1:
+                    break
+            else:
+                node = Node(time=p_time, sequence=p_seq, left=left, right=right, sibling=prev)
+                left.parent = node
+                right.parent = node
+                leaves[-1].sibling = node
+                leaves.append(node)
+                prev = node
+
+        prev.time = 0 # root node must have time zero
+        return prev # last node is root
+        
 
     def nodes(self, filters=None, sorter=None):
         nodes = [node for node in self.root.pre_order_traverse(filter_by=filters)]
@@ -50,8 +102,8 @@ class Node:
     def __init__(self, **kwargs):
         self.time = kwargs.get("time", None)
         self.sequence = kwargs.get("sequence", None)
-        self.edge = kwargs.get("edge", None)
         self.parent = kwargs.get("parent", None)
+        self.sibling = kwargs.get("sibling", None)
         self.left = kwargs.get("left", None)
         self.right = kwargs.get("right", None)
 
