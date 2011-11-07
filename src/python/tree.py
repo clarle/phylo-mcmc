@@ -8,7 +8,8 @@ class Tree:
         filename = kwargs.get("filename", "infile")
         seqs, num_seqs, len_seqs = parse_data(filename)
         leaf_nodes = self.generate_leaves(seqs, tau)
-        self.root = self.generate_tree(leaf_nodes)
+        self.root = self.generate_tree(leaf_nodes, tau)
+        self.curr = self.root
 
     def generate_leaves(self, seqs, tau):
         leaf_nodes = []
@@ -16,26 +17,25 @@ class Tree:
         
         for seq in seqs:
             if prev is None:
-                node = Node(time=tau, sequence=seq)
+                node = Node(time=0, sequence=list(seq))
                 leaf_nodes.append(node) 
                 prev = node
             else:
-                node = Node(time=tau, sequence=seq, sibling=prev)
+                node = Node(time=0, sequence=list(seq), sibling=prev)
                 leaf_nodes[-1].sibling = node
                 leaf_nodes.append(node)
-                prev = node
+                prev = None
         
         return deque(leaf_nodes)
 
-    def generate_tree(self, leaves):
+    def generate_tree(self, leaves, tau):
         prev = None
 
         while True:
-            print leaves
             left = leaves.popleft()
             right = leaves.popleft()
             p_seq = merge_seqs(left.sequence, right.sequence)
-            p_time = merge_time(left.time, right.time)
+            p_time = merge_time(left.time, right.time, tau)
             
             if prev is None or len(leaves) == 0:
                 node = Node(time=p_time, sequence=p_seq, left=left, right=right)
@@ -53,24 +53,47 @@ class Tree:
                 leaves.append(node)
                 prev = node
 
-        prev.time = 0 # root node must have time zero
+        prev.time = tau # root node must have time zero
         return prev # last node is root
         
 
     def nodes(self, filters=None, sorter=None):
-        nodes = [node for node in self.root.pre_order_traverse(filter_by=filters)]
+        nodes = list(self.root.pre_order_iter(filter_fn=filters))
         if sorter:
             nodes.sort(sorter)
         return nodes
         
     def get_internal(self):
-        return self.nodes(filters=lambda x: not x.is_leaf())
+        return self.nodes(filters=lambda x: not x.is_leaf() and not x.is_root())
 
     def get_leaves(self):
         return self.nodes(filters=lambda x: x.is_leaf())
 
     def find(self, filters):
         return self.nodes(filters=filters)
+
+    def update(self, old, new):
+        stack = [self.root]
+        node = None
+        while stack:
+            node = stack.pop(0)
+            if node is not None and node is not old:
+                child_nodes = [node.left, node.right]
+                child_nodes.extend(stack)
+                stack = child_nodes
+            elif node is old:
+                node = new
+                break
+
+        while node.parent != None:
+            if node.parent.left == old:
+                node.parent.left = node
+                node = node.parent
+            else:
+                node.parent.right = node
+                node = node.parent
+        
+        self.root = node
 
     def length(self):
         total = 0
@@ -79,7 +102,7 @@ class Tree:
                 total += edge.length
         return total
 
-    def local_rearrange(self, rand_fn):
+    def local_rearrange(self, rand_fn=random.randint):
         rearrange = rand_fn(1, 3) # random integer between 1 and 3
         if rearrange is 1:
             if self.root is self.root.parent.left:
@@ -107,6 +130,9 @@ class Node:
         self.left = kwargs.get("left", None)
         self.right = kwargs.get("right", None)
 
+    def is_root(self):
+        return not bool(self.parent)
+    
     def is_leaf(self):
         return not bool(self.left or self.right)
 
@@ -125,15 +151,21 @@ class Node:
         else:
             return max(height(node.left), height(node.right)) + 1
 
-    def pre_order_traverse(node, filter_by=None):
-        yield node
-        pre_order_traverse(node.left, filter_by=filter_by)
-        pre_order_traverse(node.right, filter_by=filter_by)
+    def pre_order_iter(self, filter_fn=None):
+        stack = [self]
+        while stack:
+            node = stack.pop(0)
+            if node is not None and (filter_fn is None or filter_fn(node)):
+                yield node
+            if node is not None:
+                child_nodes = [node.left, node.right]
+                child_nodes.extend(stack)
+                stack = child_nodes
 
-    def post_order_traverse(self, filter_by=None):
-        post_order_traverse(node.left, filter_by=filter_by)
-        post_order_traverse(node.right, filter_by=filter_by)
+    def pre_order_traverse(self, node, filter_by=None):
         yield node
+        self.pre_order_traverse(node.left, filter_by=filter_by)
+        self.pre_order_traverse(node.right, filter_by=filter_by)
 
     def write_newick(self):
         # TO DO SOON
