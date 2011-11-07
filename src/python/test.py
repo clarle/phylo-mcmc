@@ -1,5 +1,7 @@
 from models import HKY85
+from mcmc import MCMC
 from math import exp
+from random import shuffle
 import unittest
 
 class ModelTest(unittest.TestCase):
@@ -49,6 +51,73 @@ class ModelTest(unittest.TestCase):
     def test_matrix_AC(self):
         prob = self.model.matrix['A']['C'](100)
         self.assertAlmostEqual(prob, 0.0103881)
+
+class MCMCTest(unittest.TestCase):
+    def setUp(self):
+        freq = {'A': .292, 'C': .213, 'G': .237, 'T': .258}
+        k = 22.2
+        alpha = .0005
+        tau = 1
+        draws = 100
+        filename = 'infile'
+        self.mcmc = MCMC(freq, k, alpha, tau, draws, filename)
+
+    def test_constructor(self):
+        self.assertEqual(self.mcmc.tau, 1)
+
+    def test_fun_matrix(self):
+        self.assertEqual(len(self.mcmc.matrix), 64)
+
+    def test_topology(self):
+        nodes = self.mcmc.tree.get_internal()
+        self.mcmc.target = nodes[0]
+        self.mcmc.generate_topology(self.mcmc.target)
+        # print [node.sequence for node in self.mcmc.old_topo]
+        # print [node.sequence for node in self.mcmc.new_topo]
+
+    def test_calc_matrix(self):
+        nodes = self.mcmc.tree.nodes()
+        # print len(nodes)
+        # for node in nodes:
+        #    print node.sequence
+        self.mcmc.target = nodes[1]
+        # print self.mcmc.target.sequence
+        # print self.mcmc.target.parent.sequence
+        # print self.mcmc.target.sibling.sequence
+        # print self.mcmc.target.left.sequence
+        # print self.mcmc.target.right.sequence
+        self.mcmc.calc_fun_matrix(self.mcmc.target, self.mcmc.new_topo)
+        self.assertEqual(len(self.mcmc.matrix), 64)
+
+    def test_select_time(self):
+        nodes = self.mcmc.tree.get_internal()
+        self.mcmc.target = nodes[0]
+        topo = self.mcmc.generate_topology(self.mcmc.target)
+        self.mcmc.calc_fun_matrix(self.mcmc.target, self.mcmc.new_topo)
+
+    def test_select_seq(self):
+        nodes = self.mcmc.tree.get_internal()
+        self.mcmc.target = nodes[0]
+        target = self.mcmc.target
+        topo = self.mcmc.generate_topology(self.mcmc.target)
+        self.mcmc.calc_fun_matrix(self.mcmc.target, self.mcmc.new_topo)
+        time = self.mcmc.select_time(target, topo)
+        result = self.mcmc.select_sequence(target, topo, time)
+        # print target.sequence
+        # print result
+        # print target.time
+        # print time
+
+    def test_accept(self):
+        nodes = self.mcmc.tree.get_internal()
+        self.mcmc.target = nodes[0]
+        target = self.mcmc.target
+        topo = self.mcmc.generate_topology(self.mcmc.target)
+        self.mcmc.calc_fun_matrix(self.mcmc.target, self.mcmc.new_topo)
+        # print [node.sequence for node in self.mcmc.old_topo]
+        # print [node.sequence for node in self.mcmc.new_topo]
+        # print self.mcmc.alpha(target)
+
 
 if __name__ == '__main__':
     unittest.main()
