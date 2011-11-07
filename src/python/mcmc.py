@@ -1,18 +1,20 @@
 import numpy as np
 import scipy as sp
-from random import shuffle
+from random import shuffle, choice
 from itertools import product
 from scipy.integrate import quad
 from models import HKY85
 from tree import Tree
-from utils import calc_nuc_sites, prod, four_category_dist
+from utils import calc_nuc_sites, prod, four_category_dist, unique_perms
 
 class MCMC:
-    def __init__(self, freq, k, alpha, tau, filename):
+    def __init__(self, freq, k, alpha, tau, draws, filename):
         self.tau = tau
         self.model = HKY85(freq, k, alpha)
+        self.draws = draws
         self.proposal = np.random.normal(0., 1., draws)
-        self.tree = Tree(data=filename, tau)
+        self.tree = Tree(data=filename, tau=tau)
+        self.target = None
         self.old_topo = None
         self.new_topo = None
         self.matrix = self.init_fun_matrix() # 3D dictionary
@@ -20,23 +22,62 @@ class MCMC:
         self.nuc_sum = None
         self.density = None
 
+    def metropolis(self):
+        accepted = 0
+        first = self.tree
+        tree_log = [first]
+        print [node.sequence for node in tree_log[0].nodes()]
+        rand_draw = np.random.rand(self.draws)
+
+        for i in xrange(self.draws):
+            target, topo, time, sequence = self.step()
+            prob = self.alpha(target)
+
+            if rand_draw[i] < prob:
+                current = self.accept(target, topo, time, sequence)
+                accepted += 1
+                self.tree = current
+                tree_log.append(current)
+            else:
+                copy = self.tree
+                tree_log.append(copy)
+            
+            print [node.sequence for node in tree_log[i].nodes()]
+        
+        ratio = accepted/self.draws
+        return tree_log, ratio
+
+    def accept(self, target, topo, time, sequence):
+        old = target
+        new = target
+        new.sequence = sequence
+        new.time = time
+        new.sibling = topo[0]
+        new.left = topo[1]
+        new.right = topo[2]
+
+        self.tree.update(old, new)
+        
+        return self.tree
+
     def step(self):
-        nodes = self.tree.nodes()
+        nodes = self.tree.get_internal()
         
         # make sure we can't choose the root as the target
         rand = np.random.randint(1, len(nodes))
         
         # STEP 1: Choose a non-root node as a target for the MCMC
-        target = nodes[rand]
-        topo = self.generate_topology(target)
+        self.target = nodes[rand]
+        topo = self.generate_topology(self.target)
+        self.calc_fun_matrix(self.target, topo)
 
         # STEP 2: Select a possible time from the continuous density
-        time = select_time(target, topo)
+        time = self.select_time(self.target, topo)
 
         # STEP 3: Select a possible nucleotide sequence
-        sequence = select_sequence(target, topo, time)
+        sequence = self.select_sequence(self.target, topo, time)
 
-        return target, topo, time, sequence
+        return self.target, topo, time, sequence
 
     def calc_mutation_prob(self, seq1, seq2, t):
         freqs = calc_nuc_sites(seq1, seq2)
@@ -45,14 +86,14 @@ class MCMC:
         for change in freqs:
             start_nuc = change[0]
             end_nuc = change[1]
-            prob = self.model[start_nuc][end_nuc](t)
+            prob = self.model.matrix[start_nuc][end_nuc](t)
             mutate_probs.append(prob)
 
         return prod(mutate_probs)
 
     def init_fun_matrix(self):
         fun_dict = {}
-        generator = product("ATCG", repeat=3):
+        generator = product("ATCG", repeat=3)
         
         for seq in generator:
             fun_dict[seq] = None
@@ -61,7 +102,8 @@ class MCMC:
 
     def generate_topology(self, target):
         self.old_topo = [target.left, target.right, target.sibling]
-        self.new_topo = shuffle(self.old_topo)
+        choices = unique_perms(self.old_topo)
+        self.new_topo = choice(choices)
         return self.new_topo
 
     def calc_fun_matrix(self, target, topo):
@@ -77,77 +119,79 @@ class MCMC:
                 
 
     def prob_integral(self, target, topo):
-        upper = target.time
+        upper = target.parent.time
         lower = max(topo[1].time, topo[2].time) # max of child times
         result = 0
         for prob in self.matrix:
-            result += quad(self.matrix[prob], lower, upper)
-
+            result += quad(self.matrix[prob], lower, upper)[0]
         return result
 
     def sum_numer(self):
-        return lambda t: sum(prob(t) for prob in self.matrix.values) 
+        return lambda t: sum(prob(t) for prob in self.matrix.values()) 
     
-    def calc_density(self, target, topo)
-        self.matrix = self.calc_fun_matrix(target, topo)
+    def calc_density(self, target, topo):
+        # self.matrix = self.calc_fun_matrix(target, topo)
         self.nuc_sum = self.sum_numer()
         density = lambda t: self.nuc_sum(t)/self.prob_integral(target, topo)
         return density
 
     def select_time(self, target, topo):
         self.density = self.calc_density(target, topo)
-        sample = self.rejection_sample(self.density)
+        sample = self.rejection_sample(self.density, target, topo)
         return sample
 
-    def rejection_sample(self, density):
+    def rejection_sample(self, density, target, topo):
         while True:
-            uniform = np.random.uniform()
-            beta = np.random.beta(0., 1., 1.5)
-            if beta < density(uniform)
+            lower = max(topo[1].time, topo[2].time)
+            upper = target.parent.time
+            uniform = np.random.uniform(lower, upper)
+            prop = np.random.normal()
+            dense = density(uniform)
+            if prop < dense:
                 return uniform
 
     def select_sequence(self, target, topo, t):
         nucs = ('A', 'T', 'C', 'G')
         freqs = {'A': 0., 'T': 0., 'C': 0., 'G': 0.}
-		parent = target.parent
-		for seq in self.matrix:
-        	for nuc in nucs:
-            	p = self.model.matrix[seq[0]][nuc](parent.time - t)
-            	c1 = self.model.matrix[nuc][seq[1]](t - topo[1].time)
-            	c2 = self.model.matrix[nuc][seq[2]](t - topo[2].time)
-				freqs[nuc] += p * c1 * c2
+        new_seq = []
+        parent = target.parent
+        for seq in self.target.sequence:
+            for nuc in nucs:
+                p = self.model.matrix[seq][nuc](parent.time - t)
+                c1 = self.model.matrix[nuc][seq](t - topo[1].time)
+                c2 = self.model.matrix[nuc][seq](t - topo[2].time)
+                freqs[nuc] += (p * c1 * c2)/4
 
-        four_category_dist(1, freqs, nucs)[0]
+            new_nuc = four_category_dist(1, freqs.values(), nucs)[0]
+            new_seq.append(new_nuc)
 
-    def transition_prob(self, target, topo, time)
-        return self.prob_integral(target, topo) * \
-            calc_mutation_prob(target.sequence, topo[0].sequence, time) *\
-            len(self.tree.get_leaves())
+        return new_seq
 
-	def alpha(self):
-        return min(self.transition_prob(target, self.old_topo)/\
-                   self.transition_prob(target, self.new_topo), 1.)
+    def transition_prob(self, target, topo):
+        integral = self.prob_integral(target, topo) 
+        mutation_prob = self.calc_mutation_prob(target.parent.sequence, topo[0].sequence, target.parent.time - topo[0].time)
+        return integral * mutation_prob
 
-    def rand_walk_metropolis(draws):
-        accepted = 0
-        current = 0
+    def alpha(self, target):
+        new_prob = self.transition_prob(target, self.new_topo)
 
-        proposal = np.random.laplace(0., 1., draws)
-        target = np.empty(draws)
-        rand_draw = np.random.rand(draws)
+        old_matrix = self.calc_fun_matrix(target, self.old_topo)
+        old_prob = self.transition_prob(target, self.old_topo)
 
-        target[0] = current
+        prob = new_prob/old_prob
 
-        for i in xrange(1, draws):
-            candidate = current + proposal[i]
-            prob = self.alpha()
+        return min(prob, 1.)
 
-            if rand_draw[i] < prob:
-                current = candidate
-                accepted += 1.
+def main():
+    freq = {'A': .292, 'C': .213, 'G': .237, 'T': .258}
+    k = 22.2
+    alpha = .0005
+    tau = 1
+    draws = 10
+    filename = 'infile'
+    mcmc = MCMC(freq, k, alpha, tau, draws, filename)
+    return mcmc.metropolis()    
 
-            target[i] = current
+if __name__ == '__main__':
+    main()
 
-        ratio = accepted/draws
-
-        return target, ratio
