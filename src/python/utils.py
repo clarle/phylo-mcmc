@@ -1,6 +1,7 @@
 import operator
 import numpy as np
 from collections import Counter
+from itertools import permutations
 from random import choice, uniform
 
 def prod(terms):
@@ -44,5 +45,10 @@ def merge_seqs(seq1, seq2):
 
     return parent_seq
 
-def merge_time(time1, time2):
-    return uniform(0, max(time1, time2))
+def merge_time(time1, time2, tau):
+    return uniform(min(time1, time2), tau)
+
+def unique_perms(a):
+    b=permutations(a)
+    f=lambda per:all(x==y for x,y in zip(a,per)) or all(x!=y for x,y in zip(a,per))
+    return filter(f,b)
