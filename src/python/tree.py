@@ -88,9 +88,11 @@ class Tree:
         while node.parent != None:
             if node.parent.left == old:
                 node.parent.left = node
+                node.parent.right = node.sibling
                 node = node.parent
             else:
                 node.parent.right = node
+                node.parent.left = node.sibling
                 node = node.parent
         
         self.root = node

@@ -1,5 +1,6 @@
 import numpy as np
 import scipy as sp
+from copy import deepcopy
 from random import shuffle, choice
 from itertools import product
 from scipy.integrate import quad
@@ -12,7 +13,6 @@ class MCMC:
         self.tau = tau
         self.model = HKY85(freq, k, alpha)
         self.draws = draws
-        self.proposal = np.random.normal(0., 1., draws)
         self.tree = Tree(data=filename, tau=tau)
         self.target = None
         self.old_topo = None
@@ -27,6 +27,7 @@ class MCMC:
         first = self.tree
         tree_log = [first]
         print [node.sequence for node in tree_log[0].nodes()]
+        print [node.time for node in tree_log[0].nodes()]
         rand_draw = np.random.rand(self.draws)
 
         for i in xrange(self.draws):
@@ -43,21 +44,39 @@ class MCMC:
                 tree_log.append(copy)
             
             print [node.sequence for node in tree_log[i].nodes()]
-        
+            print [node.time for node in tree_log[i].nodes()]
+
         ratio = accepted/self.draws
         return tree_log, ratio
 
     def accept(self, target, topo, time, sequence):
-        old = target
         new = target
+
+        topo[0].sibling = new
+        topo[1].parent = new
+        topo[2].parent = new
+        topo[1].sibling = topo[2]
+        topo[2].sibling = topo[1]
+
         new.sequence = sequence
         new.time = time
         new.sibling = topo[0]
         new.left = topo[1]
         new.right = topo[2]
+       
+        print "New Target:" + str(new.sequence)
+        print "New Sibling:" + str(new.sibling.sequence)
+        print "New Left:" + str(new.left.sequence)
+        print "New Right:" + str(new.right.sequence)
 
-        self.tree.update(old, new)
-        
+        self.tree.update(target, new)
+       
+        # old_sib = topo[0]
+        # new_sib = topo[0]
+        # new_sib.sibling = new
+
+        # self.tree.update(old_sib, new_sib)
+
         return self.tree
 
     def step(self):
@@ -68,6 +87,10 @@ class MCMC:
         
         # STEP 1: Choose a non-root node as a target for the MCMC
         self.target = nodes[rand]
+        print "Old Target:" + str(self.target.sequence)
+        print "Old Sibling:" + str(self.target.sibling.sequence)
+        print "Old Left:" + str(self.target.left.sequence)
+        print "Old Right:" + str(self.target.right.sequence)
         topo = self.generate_topology(self.target)
         self.calc_fun_matrix(self.target, topo)
 
@@ -137,17 +160,37 @@ class MCMC:
 
     def select_time(self, target, topo):
         self.density = self.calc_density(target, topo)
-        sample = self.rejection_sample(self.density, target, topo)
+        sample = self.inverse_cdf(self.density, target, topo, 100)
         return sample
 
+    def inverse_cdf(self, density, target, topo, draws):
+        lower = max(topo[1].time, topo[2].time)
+        upper = target.parent.time
+        grid = np.linspace(lower, upper, draws)
+        uniform = np.random.uniform(0, 1, draws)
+        pdf_values = np.zeros(draws)
+        cum_cdf_values = np.zeros(draws)
+        theta = np.zeros(draws)
+
+        for i in xrange(draws):
+            pdf_values[i] = density(grid[i])
+            cum_cdf_values[i] = np.sum(pdf_values)/(upper - lower)
+            theta[i] = grid[(cum_cdf_values[0:i] <= uniform[0:i]).sum()]
+
+        return choice(theta) 
+
     def rejection_sample(self, density, target, topo):
+        count = 0
         while True:
+            count += 1
             lower = max(topo[1].time, topo[2].time)
             upper = target.parent.time
             uniform = np.random.uniform(lower, upper)
             prop = np.random.normal()
             dense = density(uniform)
             if prop < dense:
+                print count
+                print prop
                 return uniform
 
     def select_sequence(self, target, topo, t):
